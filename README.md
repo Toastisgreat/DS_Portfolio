@@ -5,5 +5,5 @@ Hi, this is currently unfinished and if you are looking at this now, I'm sorry! 
   - Visualization of general mathematical concepts, mostly just pretty graphs.
 - Deep Learning Projects (Currently in different respository)
   - Collection of deep learning projects I did outside of school.
-- Data Visualization
-  - Visualization of data from actual data sets.
+- Data Projects
+  - General projects dealing with data science and actual data, i.e. not open math problems.
