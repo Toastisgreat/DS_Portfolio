@@ -21,5 +21,14 @@ I think the Prime number circles is the coolest one so far, but they all show of
     <li>These use datashader to plot about a million points coordinates of numbers</li>
     <li>The coordinates are found using a conversion to polar coordinates for some number x: (increment * sin(x) ,increment * cos(x)), where the increment is 1/n, the number of numbers in the data set being visualized.</li>
   </ul>
-
+  <li>AKS Primality Test</li>
+  <ul>
+    Overview of different primality tests, ranging from sqrt(n) to the AKS Primality test. Compares each one with bar charts, and contains a small discussion on big O notation.
+  </ul>
+<li>
+  Riemann Zeta Visualization
+</li>
+  <li>
+    Currently empty, intended to be visualization of the 
+  </li>
 </ul>
