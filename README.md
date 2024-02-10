@@ -1,5 +1,5 @@
 # DS_Portfolio for Robert Murray-Gramlich
-Hi, this is currently unfinished and if you are looking at this now, I'm sorry! Certain parts of the Deep learning projects are depracated, and my windows machine instantly ran them (I guess you could say my machine isn't learning!) and so some of the notebooks are broken :( I will try and fix this as soon as I can though! <br><br> This is a portfolio of projects I have completed mainly outside of my academics and work, as my work is private due to the nature of the research. 
+Hi!! Certain parts of the Deep learning projects are depracated, and my windows machine instantly ran them (I guess you could say my machine isn't learning!) and so some of the notebooks are broken. I will try and fix this as soon as I can though! <br><br> This is a portfolio of projects I have completed mainly outside of my academics and work, as my work is private due to the nature of the research and that most of it is consulting for large companies with private data. 
 ## Table of Contents
 - Math Visualization Projects
   - Visualization of general mathematical concepts, intended to show visualization and mathematical skills.
