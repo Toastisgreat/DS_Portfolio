@@ -1,0 +1,452 @@
+---
+title: "tier Classification with Ranger model Machine Learning"
+output: html_document
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(dplyr.summarise.inform = FALSE)
+getwd()
+```
+
+```{r, message=FALSE, echo=FALSE, warning = FALSE}
+library(tidyverse)
+library(gridExtra)
+library(caret)
+library(fmsb)
+library(arules)
+library(patchwork)
+library(ranger)
+create_beautiful_radarchart <- function(data, color = "#00AFBB", 
+                                        vlabels = colnames(data), vlcex = 0.7,
+                                        caxislabels = NULL, title = NULL, ...){
+  radarchart(
+    data, axistype = 1,
+    # Customize the polygon
+    pcol = color, pfcol = scales::alpha(color, 0.5), plwd = 2, plty = 1,
+    # Customize the grid
+    cglcol = "grey", cglty = 1, cglwd = 0.8,
+    # Customize the axis
+    axislabcol = "grey", 
+    # Variable labels
+    vlcex = vlcex, vlabels = vlabels,
+    caxislabels = caxislabels, title = title, ...
+  )
+}
+
+```
+
+This file contains an exploration of the classification analysis for Pick/Ban Rate, Win Rate, and KDA, as attempts to predict tier. 
+
+```{r, message=FALSE}
+
+leaguedf <- read_csv('S13LeagueOfLegendsData.csv', col_types=cols()) %>% 
+  rename(winr = "Win %", pick = 'Pick %', ban = 'Ban %', roler = 'Role %') %>%
+  mutate(pbr = pick + ban, tier = Tier) %>%
+  select(-c(1,2,5, 6,7,10,11))
+
+
+head(leaguedf, 5)
+```
+#### Key for Reference
+- tier: tier of champion
+- winr: winrate of champion
+- KDA: Kill/Death/Assist Ratio, $\frac{\text{kills} + \text{assists}}{\text{deaths}}$
+- pbr: Pick Ban Rate, Pick rate + Ban rate
+- Class: Class of fighter, categorical choice
+- ROLE: role that data was collected for
+- roler: Percentage of games that were played for this champion on this role
+- patch: Patch that data was collected from
+
+
+```{r}
+
+leaguedf$tier <- factor(leaguedf$tier, levels=c('D', 'C', 'B', 'A', 'S', 'God'), ordered=TRUE)
+plot1 <- ggplot(data=leaguedf) + 
+  geom_boxplot(mapping = aes(x = tier, y=winr, fill=tier)) +
+  ggtitle('Win Rate and tier') +
+  ylab('Win Rate') + 
+  theme(legend.position='none') +
+  scale_fill_brewer(palette="BuPu")
+
+plot2 <- ggplot(data = leaguedf) + 
+  geom_boxplot(mapping = aes(x= tier, y=pbr, fill=tier)) +
+  ggtitle('Pick/Ban Rate and tier') +
+  ylab('Pick/Ban Rate') + 
+  theme(legend.position='none') + 
+  scale_fill_brewer(palette="Dark2")
+  
+  
+grid.arrange(plot1, plot2, ncol=2)
+
+
+```
+
+
+
+```{r}
+ggplot(data=leaguedf) + 
+  geom_bar(mapping=aes(x=tier, fill=tier)) + 
+  scale_fill_brewer('viridis') + 
+  theme(legend.position = 'none') + ylab("Number of Observations") 
+
+```
+
+```{r}
+tier_stats <- leaguedf %>%
+  group_by(tier) %>% 
+  summarize(KDA = median(KDA), pbr = median(pbr), wr=median(winr))
+tier_stats$tier <-  factor(tier_stats$tier, levels=c('D', 'C', 'B', 'A', 'S', 'God'), ordered=TRUE)
+tier_stats <- as_tibble(tier_stats) %>% column_to_rownames(var = "tier") 
+  # statistics wanted by tier, and change row name to tier
+
+max_min <- data.frame(KDA = c(0, 5), pbr=c(0,1), wr=c(0,1)) #Formatting data for radar chart
+rownames(max_min) <- c("Max", "Min")
+
+radar_frame <- rbind(max_min, tier_stats) #final frame for radar chart
+
+#The next two lines split the area for the radar charts
+op <- par(mar = c(1.5,1.5,1.5,1.5)) 
+#Split into 6 pieces
+par(mfrow = c(2,3))
+
+#Color for each tier
+colors = c("#D95F45", "#D9B245", "#62D945", "#45D9AA", "#45A6D9", "#7145D9")
+
+#Title for each chart
+titles = c("A", "B", "C", "D", "S", "God")
+
+#make them
+for (i in 1:6) {
+  create_beautiful_radarchart(data = radar_frame[c(1,2, i+2), ],
+                              color = colors[i], title = titles[i]
+                              )
+} #TODO: FIgure out why its wrong
+par(op)
+```
+
+p.s. I think spider plot is cooler name than radar chart.
+
+
+
+## Thoughts
+
+- For higher tiers, such as God, S, and A, it seems that pick ban rate significantly rises.
+- For lower tiers, such as D and C, the win rate significantly drops.
+- Alone, each of them would likely only do so well to analyze the tiers, but together they seem to be better.
+- The number of observations is fairly symmetric with respect to the middle (A/B)
+
+## Moving Forwards
+From here on, we will begin classification techniques. The data is overall fairly symmetric with respect to the 
+
+
+```{r}
+set.seed(27)
+
+# Split the data into test/train. We want 75% for training, and 25% for testing.
+
+inTrain <- createDataPartition(y=leaguedf$tier, p=0.75, list=FALSE) 
+
+leagueTraininit <- leaguedf[ inTrain, ]
+leagueTestinit <- leaguedf[ -inTrain, ]
+
+#Verify we did it correct, 0.75*5637 is approx 4225
+nrow(leagueTraininit)
+```
+```{r, eval=TRUE, echo=FALSE}
+rf_fit <- readRDS('rf_initial_fit.rds')
+```
+
+
+```{r, eval=FALSE}
+
+rf_fit <- train(as.factor(tier) ~ .,
+                data = leagueTraininit,
+                method="ranger")
+
+rf_fit
+```
+
+```{r, echo=FALSE, eval=FALSE}
+saveRDS(rf_fit, "rf_initial_fit.rds")
+```
+
+```{r}
+rf_pred <- predict(rf_fit, leagueTestinit)
+
+cm <- confusionMatrix(rf_pred, as.factor(leagueTestinit$tier), dnn = c("Prediction", "Actual"))
+plt <- as.data.frame(cm$table)
+plt$Prediction <- factor(plt$Prediction, levels=rev(levels(plt$Prediction)))
+
+ggplot(plt, aes(Prediction,Actual, fill=Freq)) +
+        geom_tile() + geom_text(aes(label=Freq)) +
+        scale_fill_gradient(low="white", high="#009194") +
+        labs(x = "Actual",y = "Prediction") +
+        scale_y_discrete(labels=c('D', 'C', 'B', 'A', 'S', 'God')) +
+        scale_x_discrete(labels=c('God', 'S', 'A', 'B', 'C', 'D')) + theme_minimal()
+
+
+```
+
+```{r, eval=FALSE}
+Mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+Boundarydf = expand.grid(winr = seq(0.4, 0.6, length.out=50), pbr = seq(0, 1, length.out=50), KDA = seq(1, 5, length.out=40), Role = "SUPPORT", `roler` = seq(0.1,1, length.out=10), Patch=c("13_12"), Class=c("Mage", "Support"))
+Boundarydf$tier <- predict(rf_fit, Boundarydf)
+Boundarydf <- Boundarydf %>%
+  group_by(winr, pbr) %>%
+  summarize(tier = Mode(tier)) %>%
+  ungroup()
+
+write.csv(Boundarydf, "BoundaryFrame.csv")
+
+
+```
+
+```{r, echo=FALSE}
+Boundarydf <- read_csv("BoundaryFrame.csv")
+```
+
+```{r, eval=TRUE}
+
+leaguedf %>% filter(Role=="SUPPORT", Patch=="13_12", Class == "Mage" | Class == "Support")
+leaguedf %>% filter(Role=="SUPPORT", Patch=="13_12", Class == "Mage" | Class == "Support") %>%
+  ggplot(mapping=aes(x=winr, y=pbr, fill=tier)) + geom_raster(data=Boundarydf, alpha=0.5) + geom_point(shape=21, mapping=aes(size=KDA), alpha=0.75) + theme_minimal() + xlab('Win Rate') + ylab('Pick Ban Rate') + ggtitle('Boundary Plot for Support in Patch 13.12')
+
+```
+
+```{r}
+
+leagueTestinit$pred <- rf_pred
+leagueTestinit %>%
+  mutate(correct = (pred == tier)) %>% rowwise() %>%
+  filter(!(Class == 'NULL')) %>%
+  group_by(Role, Class) %>%
+  summarize(accuracy = sum(correct)/ n()) %>%
+  ungroup() %>% complete(Role, Class, fill=list(NULL)) %>%
+  ggplot() + geom_tile(mapping = aes(x = Role, y = Class, fill=accuracy )) + 
+    ggtitle("Heatmap for Accuracy by Class/Role") + 
+    scale_fill_continuous(na.value="darkred", breaks=c(0,0.5,1), labels=c("0%", "50%", "100%"), limits=c(0,1))
+```
+
+- From the boundary plot and confusion matrix, we can see our model is pretty good at sorting through God, S, and A tiers, but worse at B and C.
+- We can tell from the boundary plot that Pick Ban Rate is very important in telling whether or not a champion is god tier, since almost all of the area above 50% pick ban rate is designated to God tier.
+
+
+### Preprocessing Data
+```{r}
+#First we want to create extra data.
+
+
+
+
+leaguedf_final <- leaguedf %>%
+  mutate(Patch = as.numeric(str_replace(Patch, '(.*?)_(.*?)', ''))) #This turns patch to numeric 
+
+
+inTrain <- createDataPartition(y=leaguedf_final$tier, p=0.75, list=FALSE) 
+
+leagueTrain <- leaguedf_final[ inTrain, ]
+leagueTest <- leaguedf_final[ -inTrain, ]
+
+
+```
+
+### Hypertuning Model on Preprocess Data
+This will take a long time, so please be patient if you run this yourself.
+```{r, echo=FALSE}
+fit <- readRDS("RangerFITwPatch.rds")
+```
+
+```{r, eval=FALSE}
+grid <- expand.grid(mtry = c(6,9,12), splitrule=c("extratrees", "gini"), min.node.size=c(1,3,6,10))
+
+fitControl <- trainControl(method='CV', number = 5, verboseIter=FALSE)
+
+fit <- train(as.factor(tier)~.,
+             data=leagueTrain,
+             method="ranger",
+             tuneGrid=grid,
+             trControl = fitControl, importance="impurity"
+)
+
+```
+
+```{r}
+fit$finalModel 
+```
+
+```{r}
+#This model is not used for classification purposes, but for finding p-values!
+ranger_fit <- ranger(formula = tier ~ .,
+                       data = leagueTrain,
+                       num.trees = 500,
+                       mtry = 7,
+                       min.node.size = 1,
+                       importance = "impurity_corrected",
+                       splitrule = "extratrees",
+)
+```
+
+```{r}
+setwd('../ClassificationML')
+saveRDS(fit, "RangerFITwPatch.rds")
+```
+
+```{r}
+paste("Initial accuracy is: ", round(sum(leagueTestinit$tier == predict(rf_fit, leagueTestinit)) / length(leagueTestinit$tier), 4)*100, '%', sep='')
+paste("Final accuracy is: ", round(sum(leagueTest$tier == predict(fit, leagueTest)) / length(leagueTest$tier), 4)*100, '%', sep='')
+
+
+fit$results %>%  
+  mutate(mtry = as.character(mtry), min.node.size = as.character(min.node.size)) %>%
+  mutate(mtry = factor(mtry, levels=c("6", "9", "12", "15"), ordered=TRUE),
+         min.node.size = factor(min.node.size, levels = c("1","3", "6", "10"), ordered=TRUE)) %>%
+  ggplot() + geom_tile(mapping = aes(x=mtry, y=min.node.size, fill=Accuracy)) + facet_wrap(splitrule ~.) + ggtitle("Accuracy vs. Kappa for each value")
+```
+
+### Recreation of Charts
+
+```{r, fig.width = 12}
+ImpFrame <- varImp(fit)[1] %>%
+  as_tibble(rownames="VariableName") 
+ImpFrame <- ImpFrame$importance %>% as_tibble(rownames="VariableName") %>%
+  mutate(VariableName = case_when(
+    grepl('Class', VariableName, fixed = TRUE) ~ 'Class',
+    grepl("Role", VariableName, fixed = TRUE) ~'Role',
+    TRUE ~ VariableName
+  ))  %>%
+  group_by(VariableName) %>%
+  summarize(Overall = sum(Overall)) %>%
+  arrange(Overall) %>%
+  mutate(VariableName = as.factor(VariableName))
+
+
+plot1 <- ggplot(varImp(fit)) + 
+    geom_bar(mapping = aes(x = Feature, y = Importance, fill=Importance), stat = "identity", position = "dodge")  +
+    ylab("Variable Importance") +
+    xlab("") +
+    ggtitle("Importance by Feature") +
+    scale_fill_gradient(low = "red", high = "blue") + 
+  theme(legend.position = "none")
+
+plot2 <- ggplot(ImpFrame) + 
+  geom_bar(mapping = aes(x = fct_reorder(VariableName, Overall), y = Overall, fill= Overall), stat = "identity", position = "dodge") +
+  ylab("Variable Importance") + 
+  xlab("") + 
+  ggtitle("Importance grouped by Column") + 
+  scale_fill_gradient(low = "red", high = "blue") + 
+  coord_flip() + 
+  labs(fill = "Importance")
+plot1 & plot2
+```
+
+
+```{r, eval=FALSE}
+
+finalBoundarydf = expand.grid(winr = seq(0.4, 0.6, length.out=50), 
+                            pbr = seq(0, 1, length.out=50), 
+                            KDA = seq(1, 5, length.out=40), 
+                            Role = "SUPPORT", 
+                            `roler` = seq(0.1,1, length.out=10), 
+                            Patch = c(12), 
+                            Class = c("Mage", "Support"))
+
+
+finalBoundarydf$tier <- predict(fit, finalBoundarydf) #Why does it say Class not found?
+finalBoundarydf <- Boundarydf %>%
+  group_by(winr, pbr) %>%
+  summarize(tier = Mode(tier)) %>%
+  ungroup()
+
+write.csv(Boundarydf, 'FinalBoundarydf.csv')
+
+```
+
+```{r, echo=FALSE}
+finalBoundarydf <- read_csv("FinalBoundarydf.csv")
+```
+
+```{r, eval=TRUE, fig.height=5, fig.width=12}
+plot1 <- leaguedf %>%
+  filter(Role=="SUPPORT", Patch=="13_12", Class == "Mage" | Class == "Support") %>%
+  ggplot(mapping=aes(x=winr, y=pbr, fill= tier)) + 
+    geom_raster(data=Boundarydf, alpha=0.5) + 
+    geom_point(shape=21, mapping=aes(size=KDA), alpha=0.75) + 
+    theme_minimal() + 
+    xlab('Win Rate') + 
+    ylab('Pick Ban Rate') + 
+    ggtitle('Pre tuning') 
+
+plot2 <- leaguedf %>% 
+  filter(Role=="SUPPORT", Patch=="13_12", Class == "Mage" | Class == "Support") %>%
+  ggplot(mapping=aes(x=winr, y=pbr, fill= tier))+ 
+    geom_raster(data=finalBoundarydf, alpha=0.5) + 
+    geom_point(shape=21, mapping=aes(size=KDA), alpha=0.75) + 
+    theme_minimal() + 
+    xlab('Win Rate') + 
+    ylab('') + 
+    ggtitle('Post Tuning')
+
+patch <- plot1 +  plot2 & theme(legend.position="bottom")
+patch + plot_layout(ncol=2,guides="collect") + plot_annotation(title="Boundary Plots for Support on Patch 13.12", theme = theme(plot.title = element_text(size = 20)))
+```
+
+```{r}
+rf_pred <- predict(fit, leagueTest)
+
+cm <- confusionMatrix(rf_pred, as.factor(leagueTest$tier), dnn = c("Prediction", "Actual"))
+plt <- as.data.frame(cm$table)
+plt$Prediction <- factor(plt$Prediction, levels=rev(levels(plt$Prediction)))
+
+ggplot(plt, aes(Prediction,Actual, fill=Freq)) +
+        geom_tile() + geom_text(aes(label=Freq)) +
+        scale_fill_gradient(low="white", high="#009194") +
+        labs(x = "Actual",y = "Prediction") +
+        scale_y_discrete(labels=c('D', 'C', 'B', 'A', 'S', 'God')) +
+        scale_x_discrete(labels=c('God', 'S', 'A', 'B', 'C', 'D')) + theme_minimal()
+
+
+```
+
+
+```{r}
+leagueTest$pred <- rf_pred
+leagueTest %>%
+  mutate(correct = (pred == tier)) %>% rowwise() %>%
+  filter(!(Class == 'NULL')) %>%
+  group_by(Role, Class) %>%
+  summarize(accuracy = sum(correct)/ n()) %>%
+  ungroup() %>% complete(Role, Class, fill=list(NULL)) %>%
+  ggplot() + geom_tile(mapping = aes(x = Role, y = Class, fill=accuracy )) + 
+    ggtitle("Heatmap for Accuracy by Class/Role") + 
+    scale_fill_continuous(na.value="darkred", breaks=c(0,0.5,1), labels=c("0%", "50%", "100%"), limits=c(0,1))
+```
+
+
+```{r, eval = F}
+importance_pvalues(ranger_fit, 
+                   method= c("altmann"),
+                   formula = tier ~.,
+                   data = leaguedf_final)
+```
+
+       importance     pvalue
+Class   57.14298 0.00990099
+Role    90.31376 0.00990099
+winr   233.60722 0.00990099
+roler  349.44834 0.00990099
+KDA    142.37590 0.00990099
+Patch   37.74229 0.00990099
+pbr    558.14357 0.00990099
+
+```{r}
+#Cluster Analysis I added after cause im reading a textbook on a plane.
+leaguedf %>%
+  ggplot(mapping = aes(x = pbr, y = winr)) + geom_point(mapping = aes(color = tier), alpha = 1, size =0.5) + xlim(0, 0.3)
+
+```
